@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn handleConnection(allocator: std.mem.Allocator, io: std.Io, stream: std.Io.net.Stream) !void {
-    var read_buffer: [1024 * 4]u8 = undefined;
+    var read_buffer: [100]u8 = undefined;
     var write_buffer: [1024 * 4]u8 = undefined;
 
     var r = stream.reader(io, &read_buffer);

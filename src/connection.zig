@@ -24,20 +24,18 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
 
     const request = try Request.init(allocator, self.reader);
     print("method: {}\n", .{request.method});
-
-    while (try self.reader.takeDelimiter('\r')) |line| {
-        const lf = try self.reader.takeByte();
-
-        if (lf != '\n') {
-            return error.MalformedRequest;
-        }
-
-        if (line.len == 0) {
-            break;
-        }
-
-        print("{s}\n", .{line});
+    print("uri: {s}\n", .{request.uri});
+    print("version: {s}\n", .{request.version});
+    if (request.body) |body| {
+        print("body: {s}\n", .{body});
     }
+
+    var iter = request.headers.iterator();
+    while (iter.next()) |entry| {
+        print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+    }
+
+    print("content length is: {s}\n", .{request.headers.get("Content-Length").?});
 
     _ = try self.writer.write(
         \\HTTP/1.1 200
