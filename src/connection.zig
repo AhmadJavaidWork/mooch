@@ -36,7 +36,7 @@ pub fn handleConnection(self: *Self, io: std.Io) !void {
     }
 
     _ = try self.writer.write(
-        \\HTTP/1.0 200
+        \\HTTP/1.1 200
         \\Content-Type: text/plain; charset=utf-8
         \\Content-Length:15
         \\Connection: close
