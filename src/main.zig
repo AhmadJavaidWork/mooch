@@ -15,11 +15,11 @@ pub fn main(init: std.process.Init) !void {
 
     while (true) {
         const stream = try server.accept(init.io);
-        try handleConnection(init.io, stream);
+        try handleConnection(init.gpa, init.io, stream);
     }
 }
 
-fn handleConnection(io: std.Io, stream: std.Io.net.Stream) !void {
+fn handleConnection(allocator: std.mem.Allocator, io: std.Io, stream: std.Io.net.Stream) !void {
     var read_buffer: [1024 * 4]u8 = undefined;
     var write_buffer: [1024 * 4]u8 = undefined;
 
@@ -32,7 +32,7 @@ fn handleConnection(io: std.Io, stream: std.Io.net.Stream) !void {
         .writer = &w.interface,
     };
 
-    try conn.handleConnection(io);
+    try conn.handleConnection(allocator, io);
 }
 
 fn getPort(init: std.process.Init) !u16 {

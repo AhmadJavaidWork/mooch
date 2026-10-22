@@ -1,4 +1,5 @@
 const std = @import("std");
+const Request = @import("request.zig");
 const print = std.debug.print;
 
 stream: std.Io.net.Stream,
@@ -18,8 +19,11 @@ pub fn init(stream: std.Io.net.Stream, io: std.Io, read_buffer: []u8, write_buff
     };
 }
 
-pub fn handleConnection(self: *Self, io: std.Io) !void {
+pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !void {
     print("connection accepted\n", .{});
+
+    const request = try Request.init(allocator, self.reader);
+    print("method: {}\n", .{request.method});
 
     while (try self.reader.takeDelimiter('\r')) |line| {
         const lf = try self.reader.takeByte();
