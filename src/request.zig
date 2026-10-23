@@ -15,7 +15,7 @@ pub const RequestLine = struct {
 };
 
 request_line: RequestLine,
-headers: std.StringHashMap([]const u8),
+headers: std.StringHashMapUnmanaged([]const u8),
 body: ?[]const u8 = null,
 
 const Self = @This();
@@ -32,7 +32,7 @@ pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Self {
 
     var request = Self{
         .request_line = request_line,
-        .headers = .init(allocator),
+        .headers = .empty,
     };
 
     while (try reader.takeDelimiter('\r')) |line| {
@@ -50,7 +50,7 @@ pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Self {
         const value_view = std.mem.trim(u8, line[colon_idx + 1 ..], " ");
         const value = try allocator.dupe(u8, value_view);
 
-        try request.headers.put(key, value);
+        try request.headers.put(allocator, key, value);
     }
 
     request.body = blk: switch (request.request_line.method) {
