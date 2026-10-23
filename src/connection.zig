@@ -35,7 +35,7 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
         print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 
-    print("content length is: {s}\n", .{request.headers.get("Content-Length").?});
+    print("content length is: {any}\n", .{request.headers.get("Content-Length")});
 
     _ = try self.writer.write(
         \\HTTP/1.1 200
