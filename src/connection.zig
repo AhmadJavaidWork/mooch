@@ -1,5 +1,5 @@
 const std = @import("std");
-const Request = @import("request.zig");
+const Request = @import("request/request.zig");
 const print = std.debug.print;
 
 stream: std.Io.net.Stream,
@@ -22,9 +22,9 @@ pub fn init(stream: std.Io.net.Stream, io: std.Io, read_buffer: []u8, write_buff
 pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !void {
     print("connection accepted\n", .{});
 
-    const request = try Request.init(allocator, self.reader);
+    var request = try Request.init(allocator, self.reader);
     print("method: {}\n", .{request.request_line.method});
-    print("uri: {s}\n", .{request.request_line.uri});
+    print("path: {s}\n", .{request.request_line.path});
     print("version: {s}\n", .{request.request_line.version});
 
     var iter = request.headers.iterator();
@@ -49,5 +49,6 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
     );
 
     try self.writer.flush();
+    request.deinit(allocator);
     self.stream.close(io);
 }
