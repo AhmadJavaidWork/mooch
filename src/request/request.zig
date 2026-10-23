@@ -1,6 +1,5 @@
 const std = @import("std");
 const utils = @import("../utils.zig");
-const Method = @import("method.zig");
 const RequestLine = @import("request_line.zig");
 
 const print = std.debug.print;
