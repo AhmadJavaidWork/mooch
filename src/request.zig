@@ -63,5 +63,5 @@ pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Self {
 }
 
 fn parseMethod(str: []const u8) ?Method {
-    return utils.asciiStringToEnumIgnoreCase(Method, str);
+    return utils.iStringToEnum(Method, str);
 }
