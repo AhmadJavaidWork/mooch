@@ -8,28 +8,30 @@ pub const Method = enum(u8) {
     post,
 };
 
-method: Method,
-uri: []const u8,
-version: []const u8,
+pub const RequestLine = struct {
+    method: Method,
+    uri: []const u8,
+    version: []const u8,
+};
+
+request_line: RequestLine,
 headers: std.StringHashMap([]const u8),
 body: ?[]const u8 = null,
 
 const Self = @This();
 
 pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Self {
-    const start_line = try reader.takeDelimiter('\r') orelse return error.MalformedRequestStartLine;
+    const start_line = try reader.takeDelimiter('\r') orelse return error.MalformedStartLine;
 
     var lf = try reader.takeByte();
     if (lf != '\n') {
         return error.MalformedRequest;
     }
 
-    var start_line_iter = std.mem.splitScalar(u8, start_line, ' ');
+    const request_line = try parseRequestLine(allocator, start_line);
 
     var request = Self{
-        .method = parseMethod(start_line_iter.next().?) orelse Method.get,
-        .uri = try allocator.dupe(u8, start_line_iter.next().?),
-        .version = try allocator.dupe(u8, start_line_iter.next().?),
+        .request_line = request_line,
         .headers = .init(allocator),
     };
 
@@ -51,15 +53,37 @@ pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Self {
         try request.headers.put(key, value);
     }
 
-    request.body = blk: switch (request.method) {
+    request.body = blk: switch (request.request_line.method) {
         .get => break :blk null,
         .post => {
-            const content_length = try std.fmt.parseInt(usize, request.headers.get("Content-Length").?, 10);
+            const val = request.headers.get("Content-Length") orelse return error.NoContentLength;
+            const content_length = std.fmt.parseInt(usize, val, 10) catch return error.InvalidContentLength;
             break :blk try allocator.dupe(u8, try reader.take(content_length));
         },
     };
 
     return request;
+}
+
+fn parseRequestLine(allocator: std.mem.Allocator, line: []const u8) !RequestLine {
+    var line_iter = std.mem.splitScalar(u8, line, ' ');
+
+    const method_str: []const u8 = line_iter.next() orelse return error.NoMethodInRequestLine;
+    const method_enum: Method = parseMethod(method_str) orelse return error.MethodNotSupported;
+
+    const uri_view: []const u8 = line_iter.next() orelse return error.NoURIInRequestLine;
+
+    const version_view: []const u8 = line_iter.next() orelse return error.NoHttpVersionInRequestLine;
+
+    var version_view_iter = std.mem.splitScalar(u8, version_view, '/');
+    _ = version_view_iter.next() orelse return error.NoHTTPInVersionInRequestLine;
+    const version_num_view: []const u8 = version_view_iter.next() orelse return error.NoHttpVersionNumInRequestLine;
+
+    return RequestLine{
+        .method = method_enum,
+        .uri = try allocator.dupe(u8, uri_view),
+        .version = try allocator.dupe(u8, version_num_view),
+    };
 }
 
 fn parseMethod(str: []const u8) ?Method {

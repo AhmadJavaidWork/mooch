@@ -23,20 +23,22 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
     print("connection accepted\n", .{});
 
     const request = try Request.init(allocator, self.reader);
-    print("method: {}\n", .{request.method});
-    print("uri: {s}\n", .{request.uri});
-    print("version: {s}\n", .{request.version});
-    if (request.body) |body| {
-        print("body: {s}\n", .{body});
-    }
+    print("method: {}\n", .{request.request_line.method});
+    print("uri: {s}\n", .{request.request_line.uri});
+    print("version: {s}\n", .{request.request_line.version});
 
     var iter = request.headers.iterator();
     while (iter.next()) |entry| {
         print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 
-    print("content length is: {any}\n", .{request.headers.get("Content-Length")});
+    if (request.headers.get("Content-Length")) |content_length| {
+        print("content length is: {s}\n", .{content_length});
+    }
 
+    if (request.body) |body| {
+        print("body: {s}\n", .{body});
+    }
     _ = try self.writer.write(
         \\HTTP/1.1 200
         \\Content-Type: text/plain; charset=utf-8
