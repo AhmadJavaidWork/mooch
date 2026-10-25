@@ -8,38 +8,27 @@ writer: *std.Io.Writer,
 
 const Self = @This();
 
-pub fn init(stream: std.Io.net.Stream, io: std.Io, read_buffer: []u8, write_buffer: []u8) Self {
-    var r = stream.reader(io, read_buffer);
-    var w = stream.writer(io, write_buffer);
-
-    return .{
-        .stream = stream,
-        .reader = &r.interface,
-        .writer = &w.interface,
-    };
-}
-
 pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !void {
-    print("connection accepted\n", .{});
+    var request_paser = Request.Parser{ .reader = self.reader };
 
-    var request = try Request.init(allocator, self.reader);
-    print("method: {}\n", .{request.request_line.method});
-    print("path: {s}\n", .{request.request_line.path});
-    print("version: {s}\n", .{request.request_line.version});
-
-    var iter = request.headers.iterator();
-    while (iter.next()) |entry| {
-        print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+    const request_line = try request_paser.parseRequestLine(allocator);
+    var headers = try request_paser.parseHeaders(allocator);
+    const content_length_header = try headers.get(allocator, "Content-Length");
+    var body: ?[]const u8 = null;
+    if (content_length_header) |val| {
+        const content_length = try std.fmt.parseInt(usize, val, 10);
+        body = try request_paser.parseBody(allocator, request_line.method, content_length);
     }
 
-    if (request.headers.get("Content-Length")) |content_length| {
-        print("content length is: {s}\n", .{content_length});
-    }
+    var request = Request{
+        .request_line = request_line,
+        .headers = headers,
+        .body = body,
+    };
 
-    if (request.body) |body| {
-        print("body: {s}\n", .{body});
-    }
-    _ = try self.writer.write(
+    print("{f}\n", .{request});
+
+    try self.send_response(
         \\HTTP/1.1 200
         \\Content-Type: text/plain; charset=utf-8
         \\Content-Length:15
@@ -48,7 +37,15 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
         \\Hello, world!!!
     );
 
-    try self.writer.flush();
     request.deinit(allocator);
+    self.close(io);
+}
+
+pub fn close(self: *Self, io: std.Io) void {
     self.stream.close(io);
+}
+
+pub fn send_response(self: *Self, response: []const u8) !void {
+    _ = try self.writer.write(response);
+    try self.writer.flush();
 }
