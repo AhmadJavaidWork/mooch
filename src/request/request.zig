@@ -47,6 +47,12 @@ pub const Headers = struct {
     headers: std.StringHashMapUnmanaged([]const u8) = .empty,
 
     pub fn deinit(self: *Headers, allocator: std.mem.Allocator) void {
+        var it = self.headers.iterator();
+
+        while (it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
         self.headers.deinit(allocator);
     }
 
@@ -56,9 +62,10 @@ pub const Headers = struct {
         return self.headers.get(l_key);
     }
 
-    pub fn put(self: *Headers, allocator: std.mem.Allocator, key: []const u8, val: []const u8) !void {
-        const l_key = try std.ascii.allocLowerString(allocator, key);
-        try self.headers.put(allocator, l_key, val);
+    pub fn put(self: *Headers, allocator: std.mem.Allocator, k: []const u8, v: []const u8) !void {
+        const key = try std.ascii.allocLowerString(allocator, k);
+        const val = try allocator.dupe(u8, v);
+        try self.headers.put(allocator, key, val);
     }
 
     pub fn format(self: *const Headers, writer: *std.Io.Writer) !void {
@@ -123,10 +130,8 @@ pub const Parser = struct {
 
             const colon_idx = std.mem.indexOf(u8, line, ":") orelse return error.MalformedRequestHeader;
 
-            const key = try allocator.dupe(u8, line[0..colon_idx]);
-
-            const value_view = std.mem.trim(u8, line[colon_idx + 1 ..], " ");
-            const value = try allocator.dupe(u8, value_view);
+            const key = line[0..colon_idx];
+            const value = std.mem.trim(u8, line[colon_idx + 1 ..], " \t");
 
             try headers.put(allocator, key, value);
         }
@@ -213,5 +218,40 @@ test "invalid request line" {
 
         const actual = parser.parseRequestLine(allocator);
         try std.testing.expectError(e, actual);
+    }
+}
+
+test "headers" {
+    const headers = [_][]const u8{
+        "Content-Length: 123\r\n\r\n",
+        "Content-Type:     \t\t\t application/json \t\t\t      \r\n\r\n",
+    };
+
+    const allocator = std.testing.allocator;
+    const Header = struct {
+        key: []const u8,
+        val: []const u8,
+    };
+
+    const expected = [_]Header{
+        .{ .key = "content-length", .val = "123" },
+        .{ .key = "content-type", .val = "application/json" },
+    };
+
+    for (headers, 0..) |header, i| {
+        var reader: std.Io.Reader = .fixed(header);
+        var parser = Parser{ .reader = &reader };
+
+        const e = expected[i];
+
+        var actual_headers = try parser.parseHeaders(allocator);
+        defer actual_headers.deinit(allocator);
+        const val = try actual_headers.get(allocator, e.key);
+
+        try std.testing.expect(val != null);
+
+        if (val) |v| {
+            try std.testing.expectEqualStrings(e.val, v);
+        }
     }
 }
