@@ -56,7 +56,7 @@ pub const Headers = struct {
         self.headers.deinit(allocator);
     }
 
-    pub fn get(self: *Headers, allocator: std.mem.Allocator, key: []const u8) !?[]const u8 {
+    pub fn get(self: *const Headers, allocator: std.mem.Allocator, key: []const u8) !?[]const u8 {
         const l_key = try std.ascii.allocLowerString(allocator, key);
         defer allocator.free(l_key);
         return self.headers.get(l_key);
@@ -162,13 +162,47 @@ pub fn format(self: *const Self, writer: *std.Io.Writer) !void {
     try writer.print("\n}}", .{});
 }
 
+fn testRequestLine(actual: RequestLine, expected: RequestLine) !void {
+    try std.testing.expectEqual(expected.method, actual.method);
+    try std.testing.expectEqualStrings(expected.path, actual.path);
+    try std.testing.expectEqualStrings(expected.version, actual.version);
+}
+
+const TestHeader = struct {
+    key: []const u8,
+    val: []const u8,
+};
+
+fn testHeaders(actual: Headers, expected: []const TestHeader) !void {
+    const allocator = std.testing.allocator;
+    for (expected) |e| {
+        const val = try actual.get(allocator, e.key);
+
+        try std.testing.expect(val != null);
+
+        if (val) |v| {
+            try std.testing.expectEqualStrings(e.val, v);
+        }
+    }
+}
+
+fn testBody(actual: ?[]const u8, expected: ?[]const u8) !void {
+    if (expected) |e| {
+        try std.testing.expect(actual != null);
+        if (actual) |a| {
+            try std.testing.expectEqualStrings(e, a);
+        }
+    }
+}
+
 test "request line" {
-    const lines = [_][]const u8{
+    const raws = [_][]const u8{
         "GET /where?q=now HTTP/1.1\r\n",
         "GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\r\n",
         "CONNECT www.example.com:80 HTTP/1.1\r\n",
         "OPTIONS * HTTP/1.1\r\n",
     };
+
     const allocator = std.testing.allocator;
 
     const expected = [_]RequestLine{
@@ -178,22 +212,18 @@ test "request line" {
         .{ .method = .options, .path = "*", .version = "1.1" },
     };
 
-    for (lines, 0..) |line, i| {
-        var reader: std.Io.Reader = .fixed(line);
+    for (raws, 0..) |raw, i| {
+        var reader: std.Io.Reader = .fixed(raw);
         var parser = Parser{ .reader = &reader };
-
-        const e = expected[i];
 
         var actual = try parser.parseRequestLine(allocator);
         defer actual.deinit(allocator);
-        try std.testing.expectEqual(e.method, actual.method);
-        try std.testing.expectEqualStrings(e.path, actual.path);
-        try std.testing.expectEqualStrings(e.version, actual.version);
+        try testRequestLine(actual, expected[i]);
     }
 }
 
 test "invalid request line" {
-    const lines = [_][]const u8{
+    const raws = [_][]const u8{
         "",
         "GET/where?q=now HTTP/1.1\r\n",
         "\r\n",
@@ -210,8 +240,8 @@ test "invalid request line" {
         RequestErrors.NoHttpVersionNumInRequestLine,
     };
 
-    for (lines, 0..) |line, i| {
-        var reader: std.Io.Reader = .fixed(line);
+    for (raws, 0..) |raw, i| {
+        var reader: std.Io.Reader = .fixed(raw);
         var parser = Parser{ .reader = &reader };
 
         const e = expected[i];
@@ -222,36 +252,68 @@ test "invalid request line" {
 }
 
 test "headers" {
-    const headers = [_][]const u8{
+    const raws = [_][]const u8{
         "Content-Length: 123\r\n\r\n",
         "Content-Type:     \t\t\t application/json \t\t\t      \r\n\r\n",
     };
 
     const allocator = std.testing.allocator;
-    const Header = struct {
-        key: []const u8,
-        val: []const u8,
+
+    const expected = [_][]const TestHeader{
+        &[_]TestHeader{.{ .key = "content-length", .val = "123" }},
+        &[_]TestHeader{.{ .key = "content-type", .val = "application/json" }},
     };
 
-    const expected = [_]Header{
-        .{ .key = "content-length", .val = "123" },
-        .{ .key = "content-type", .val = "application/json" },
-    };
-
-    for (headers, 0..) |header, i| {
-        var reader: std.Io.Reader = .fixed(header);
+    for (raws, 0..) |raw, i| {
+        var reader: std.Io.Reader = .fixed(raw);
         var parser = Parser{ .reader = &reader };
 
-        const e = expected[i];
+        var actual = try parser.parseHeaders(allocator);
+        defer actual.deinit(allocator);
 
-        var actual_headers = try parser.parseHeaders(allocator);
-        defer actual_headers.deinit(allocator);
-        const val = try actual_headers.get(allocator, e.key);
-
-        try std.testing.expect(val != null);
-
-        if (val) |v| {
-            try std.testing.expectEqualStrings(e.val, v);
-        }
+        try testHeaders(actual, expected[i]);
     }
+}
+
+test "request with body" {
+    const req = "POST / HTTP/1.1\r\nContent-Length: 19\r\nContent-Type: application/json\r\n\r\n{\n\t\"name\": \"john\"\n}";
+
+    const allocator = std.testing.allocator;
+
+    var reader: std.Io.Reader = .fixed(req);
+    var parser = Parser{ .reader = &reader };
+
+    const request_line = try parser.parseRequestLine(allocator);
+
+    var headers = try parser.parseHeaders(allocator);
+
+    const content_length_header = try headers.get(allocator, "Content-Length");
+
+    var body: ?[]const u8 = null;
+    if (content_length_header) |val| {
+        const content_length = try std.fmt.parseInt(usize, val, 10);
+        body = try parser.parseBody(allocator, request_line.method, content_length);
+    }
+
+    var request: Self = .{
+        .request_line = request_line,
+        .headers = headers,
+        .body = body,
+    };
+    defer request.deinit(allocator);
+
+    const expected_request_line = RequestLine{
+        .method = Method.post,
+        .path = "/",
+        .version = "1.1",
+    };
+    try testRequestLine(request_line, expected_request_line);
+
+    const expected_headers = [_]TestHeader{
+        .{ .key = "Content-Length", .val = "19" },
+        .{ .key = "Content-Type", .val = "application/json" },
+    };
+    try testHeaders(headers, &expected_headers);
+
+    try testBody(request.body, "{\n\t\"name\": \"john\"\n}");
 }
