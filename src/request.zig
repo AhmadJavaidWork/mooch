@@ -20,8 +20,7 @@ pub const RequestErrors = error{
     NoMethodInRequestLine,
     NoURIInRequestLine,
     NoHttpVersionInRequestLine,
-    NoHTTPInVersionInRequestLine,
-    NoHttpVersionNumInRequestLine,
+    MalformedVersionNumber,
     MethodNotSupported,
     MalformedFieldLine,
 };
@@ -67,10 +66,11 @@ pub const Parser = struct {
 
         const version_view: []const u8 = line_iter.next() orelse return RequestErrors.NoHttpVersionInRequestLine;
 
-        var version_view_iter = std.mem.splitScalar(u8, version_view, '/');
-        _ = version_view_iter.next() orelse return RequestErrors.NoHTTPInVersionInRequestLine;
-        const version_num_view: []const u8 = version_view_iter.next() orelse return RequestErrors.NoHttpVersionNumInRequestLine;
-        const version = try allocator.dupe(u8, version_num_view);
+        if (!std.mem.startsWith(u8, version_view, "HTTP/")) {
+            return RequestErrors.MalformedVersionNumber;
+        }
+
+        const version = try allocator.dupe(u8, version_view);
 
         return .{
             .method = method,
@@ -173,10 +173,10 @@ test "request line" {
     const allocator = std.testing.allocator;
 
     const expected = [_]RequestLine{
-        .{ .method = .get, .path = "/where?q=now", .version = "1.1" },
-        .{ .method = .get, .path = "http://www.example.org/pub/WWW/TheProject.html", .version = "1.1" },
-        .{ .method = .connect, .path = "www.example.com:80", .version = "1.1" },
-        .{ .method = .options, .path = "*", .version = "1.1" },
+        .{ .method = .get, .path = "/where?q=now", .version = "HTTP/1.1" },
+        .{ .method = .get, .path = "http://www.example.org/pub/WWW/TheProject.html", .version = "HTTP/1.1" },
+        .{ .method = .connect, .path = "www.example.com:80", .version = "HTTP/1.1" },
+        .{ .method = .options, .path = "*", .version = "HTTP/1.1" },
     };
 
     for (raws, 0..) |raw, i| {
@@ -204,7 +204,7 @@ test "invalid request line" {
         RequestErrors.MethodNotSupported,
         RequestErrors.NoMethodInRequestLine,
         RequestErrors.NoHttpVersionInRequestLine,
-        RequestErrors.NoHttpVersionNumInRequestLine,
+        RequestErrors.MalformedVersionNumber,
     };
 
     for (raws, 0..) |raw, i| {
@@ -272,7 +272,7 @@ test "request with body" {
     const expected_request_line = RequestLine{
         .method = Method.post,
         .path = "/",
-        .version = "1.1",
+        .version = "HTTP/1.1",
     };
     try testRequestLine(request_line, expected_request_line);
 
