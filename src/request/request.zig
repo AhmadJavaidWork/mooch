@@ -22,6 +22,7 @@ pub const RequestErrors = error{
     NoHTTPInVersionInRequestLine,
     NoHttpVersionNumInRequestLine,
     MethodNotSupported,
+    MalformedFieldLine,
 };
 
 pub const RequestLine = struct {
@@ -86,7 +87,7 @@ pub const Parser = struct {
 
         const lf = self.reader.takeByte() catch return RequestErrors.MalformedRequestLine;
         if (lf != '\n') {
-            return error.MalformedRequest;
+            return RequestErrors.MalformedRequestLine;
         }
 
         var line_iter = std.mem.tokenizeAny(u8, line, " ");
@@ -121,7 +122,7 @@ pub const Parser = struct {
         while (try self.reader.takeDelimiter('\r')) |line| {
             const lf = try self.reader.takeByte();
             if (lf != '\n') {
-                return error.MalformedRequest;
+                return RequestErrors.MalformedFieldLine;
             }
 
             if (line.len == 0) {
