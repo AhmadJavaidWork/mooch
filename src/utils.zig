@@ -26,3 +26,7 @@ pub fn capitalizeByHyphen(allocator: std.mem.Allocator, s: []const u8) ![]const 
     }
     return out;
 }
+
+pub fn isSp(ch: u8) bool {
+    return ch == '\x20' or ch == '\x09' or ch == '\x0b' or ch == '\x0c' or ch == '\x0d';
+}
