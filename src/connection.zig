@@ -10,21 +10,18 @@ reader: *std.Io.Reader,
 writer: *std.Io.Writer,
 
 pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !void {
-    var request_paser = Request.Parser{ .reader = self.reader };
-
-    const request_line = try request_paser.parseRequestLine(allocator);
-    var headers = try request_paser.parseHeaders(allocator);
-    const content_length_header = try headers.get(allocator, "Content-Length");
-    var body: ?[]const u8 = null;
-    if (content_length_header) |val| {
-        const content_length = try std.fmt.parseInt(usize, val, 10);
-        body = try request_paser.parseBody(allocator, request_line.method, content_length);
-    }
-
-    var request = Request{
-        .request_line = request_line,
-        .headers = headers,
-        .body = body,
+    var request = Request.init();
+    defer request.deinit(allocator);
+    request.parse(allocator, self.reader) catch |err| {
+        switch (err) {
+            error.MethodNotSupported => {
+                try self.responedWithNotImplemented(allocator);
+                return;
+            },
+            else => {
+                return err;
+            },
+        }
     };
 
     std.debug.print("{f}\n", .{request});
@@ -42,9 +39,8 @@ pub fn handleConnection(self: *Self, allocator: std.mem.Allocator, io: std.Io) !
         .reason_phrase = "OK",
     };
     defer response.deinit(allocator);
-    try self.send_response(allocator, &response);
+    try self.sendResponse(allocator, &response);
 
-    request.deinit(allocator);
     self.close(io);
 }
 
@@ -52,7 +48,7 @@ pub fn close(self: *Self, io: std.Io) void {
     self.stream.close(io);
 }
 
-pub fn send_response(self: *Self, allocator: std.mem.Allocator, response: *const Response) !void {
+pub fn sendResponse(self: *Self, allocator: std.mem.Allocator, response: *const Response) !void {
     // TODO: refactor buffer allocation
     var buf: [1024 * 8]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
@@ -60,4 +56,18 @@ pub fn send_response(self: *Self, allocator: std.mem.Allocator, response: *const
 
     _ = try self.writer.write(buf[0..w.end]);
     try self.writer.flush();
+}
+
+pub fn responedWithNotImplemented(self: *Self, allocator: std.mem.Allocator) !void {
+    var response_headers = Headers{};
+    try response_headers.put(allocator, "Connection", "close");
+
+    var response = Response{
+        .status_code = Response.StatusCode.not_implemented,
+        .http_version = "HTTP/1.1",
+        .headers = response_headers,
+        .reason_phrase = "NOT IMPLEMENTED",
+    };
+    defer response.deinit(allocator);
+    try self.sendResponse(allocator, &response);
 }
