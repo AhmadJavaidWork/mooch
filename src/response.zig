@@ -7,8 +7,14 @@ const Self = @This();
 pub const StatusCode = enum(u16) {
     ok = 200,
     created = 201,
+
+    // 4xx
     bad_request = 400,
     not_found = 404,
+    uri_too_long = 414,
+
+    // 5xx
+    not_implemented = 501,
 };
 
 status_code: StatusCode,
