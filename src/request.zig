@@ -94,6 +94,7 @@ pub fn parse(self: *Self, allocator: std.mem.Allocator, reader: *std.Io.Reader) 
 }
 
 fn parseRequestLine(allocator: std.mem.Allocator, reader: *std.Io.Reader) !RequestLine {
+    try takeEmptyLines(reader);
     const line = try takeLine(reader);
 
     var line_iter = std.mem.tokenizeAny(u8, line, " ");
@@ -118,6 +119,27 @@ fn parseRequestLine(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Reque
         .path = path,
         .version = version,
     };
+}
+
+fn takeEmptyLines(reader: *std.Io.Reader) !void {
+    var start: usize = reader.seek;
+
+    while (true) {
+        const line = reader.takeDelimiter('\r') catch {
+            return RequestErrors.MalformedRequestLine;
+        } orelse return RequestErrors.MalformedRequestLine;
+        const lf = reader.takeByte() catch return RequestErrors.MalformedRequestLine;
+        if (lf != '\n') {
+            return RequestErrors.MalformedRequestLine;
+        }
+
+        if (line.len > 0) break;
+
+        start = reader.seek;
+    }
+
+    reader.seek = start;
+    return;
 }
 
 fn takeLine(reader: *std.Io.Reader) ![]const u8 {
@@ -167,10 +189,12 @@ fn parseBody(allocator: std.mem.Allocator, reader: *std.Io.Reader, method: Metho
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    self.request_line.deinit(allocator);
-    self.headers.deinit(allocator);
-    if (self.body) |body| {
-        allocator.free(body);
+    if (@intFromEnum(self.state) > @intFromEnum(State.parsing_request_line)) {
+        self.request_line.deinit(allocator);
+        self.headers.deinit(allocator);
+        if (self.body) |body| {
+            allocator.free(body);
+        }
     }
 }
 
@@ -220,12 +244,14 @@ test "request line" {
 
     const raws = [_][]const u8{
         "GET /where?q=now HTTP/1.1\r\n",
+        "\r\nGET /where?q=now HTTP/1.1\r\n",
         "GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\r\n",
         "CONNECT www.example.com:80 HTTP/1.1\r\n",
         "OPTIONS * HTTP/1.1\r\n",
     };
 
     const expected = [_]RequestLine{
+        .{ .method = .get, .path = "/where?q=now", .version = "HTTP/1.1" },
         .{ .method = .get, .path = "/where?q=now", .version = "HTTP/1.1" },
         .{ .method = .get, .path = "http://www.example.org/pub/WWW/TheProject.html", .version = "HTTP/1.1" },
         .{ .method = .connect, .path = "www.example.com:80", .version = "HTTP/1.1" },
@@ -255,7 +281,7 @@ test "invalid request line" {
     const expected = [_]RequestErrors{
         RequestErrors.MalformedRequestLine,
         RequestErrors.MethodNotSupported,
-        RequestErrors.NoMethodInRequestLine,
+        RequestErrors.MalformedRequestLine,
         RequestErrors.NoHttpVersionInRequestLine,
         RequestErrors.MalformedVersionNumber,
     };
